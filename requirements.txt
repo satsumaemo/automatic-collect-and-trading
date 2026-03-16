@@ -1,0 +1,37 @@
+# 핵심
+python-dotenv
+sqlalchemy[asyncio]
+asyncpg
+psycopg2-binary
+redis[hiredis]
+pandas
+numpy
+
+# API 클라이언트
+httpx
+aiohttp
+websockets
+
+# LLM
+google-generativeai
+anthropic
+openai
+
+# 스케줄러
+apscheduler
+
+# 텔레그램
+python-telegram-bot
+
+# 기술적 지표
+# ta-lib  # C 라이브러리 필요 — 설치 어려우면 아래 사용
+ta
+
+# 데이터 수집
+yfinance
+feedparser
+
+# 유틸
+pydantic
+python-dateutil
+pytz

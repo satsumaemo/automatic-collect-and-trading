@@ -1,0 +1,31 @@
+# 환경변수 (절대 커밋 금지)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 로그
+logs/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker 볼륨
+pgdata/
+redisdata/
+grafanadata/
+
+# 백업
+backups/
