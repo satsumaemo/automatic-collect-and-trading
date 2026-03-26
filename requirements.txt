@@ -1,4 +1,4 @@
-# 핵심
+# Core
 python-dotenv
 sqlalchemy[asyncio]
 asyncpg
@@ -7,7 +7,7 @@ redis[hiredis]
 pandas
 numpy
 
-# API 클라이언트
+# API clients
 httpx
 aiohttp
 websockets
@@ -17,21 +17,25 @@ google-generativeai
 anthropic
 openai
 
-# 스케줄러
+# Scheduler
 apscheduler
 
-# 텔레그램
+# Telegram
 python-telegram-bot
 
-# 기술적 지표
-# ta-lib  # C 라이브러리 필요 — 설치 어려우면 아래 사용
+# Technical indicators
+# ta-lib  # requires C library - use 'ta' below if install fails
 ta
 
-# 데이터 수집
+# Data collection
 yfinance
 feedparser
 
-# 유틸
+# Utilities
 pydantic
 python-dateutil
 pytz
+
+# Chat UI
+streamlit
+plotly
