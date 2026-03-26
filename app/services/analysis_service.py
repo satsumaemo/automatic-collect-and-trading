@@ -255,7 +255,7 @@ class AnalysisService:
         """news_articles 테이블의 sentiment_score 업데이트"""
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         UPDATE news_articles
                         SET sentiment_score = :score, is_processed = TRUE

@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(taskkill:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker stop:*)",
+      "Bash(sleep:*)",
+      "Bash(netstat:*)",
+      "Bash(docker info:*)",
+      "Bash(tasklist:*)",
+      "Bash(docker exec:*)",
+      "Bash(pip show:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_chat_db.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_chat_context.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_chat_gemini.py)",
+      "Bash(PYTHONIOENCODING=utf-8 streamlit run app/chat/app.py --server.port 8501 --server.headless true)",
+      "WebFetch(domain:localhost)",
+      "Bash(curl:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_chat_edge.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_chat_quality.py)",
+      "Bash(cd:*)",
+      "Bash(timeout 10 streamlit run app/chat/app.py --server.port 8501 --server.headless true)"
+    ]
+  }
+}

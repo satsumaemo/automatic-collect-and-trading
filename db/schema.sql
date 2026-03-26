@@ -443,3 +443,25 @@ CREATE INDEX IF NOT EXISTS idx_trade_history_date
 
 CREATE INDEX IF NOT EXISTS idx_trade_history_ticker
     ON trade_history (ticker, date DESC);
+
+
+-- ═══════════════════════════════════════
+-- 초기 ETF 종목 데이터
+-- ═══════════════════════════════════════
+
+INSERT INTO symbols (ticker, name, market, asset_type, sector, kis_code) VALUES
+    ('KODEX 200',        'KODEX 200',            'ETF', 'etf_equity', 'broad_market',      '069500'),
+    ('TIGER 200',        'TIGER 200',            'ETF', 'etf_equity', 'broad_market',      '102110'),
+    ('TIGER S&P500',     'TIGER 미국S&P500',     'ETF', 'etf_equity', 'broad_market',      '360750'),
+    ('TIGER NASDAQ',     'TIGER 미국나스닥100',   'ETF', 'etf_equity', 'broad_market',      '133690'),
+    ('KODEX 반도체',      'KODEX 반도체',          'ETF', 'etf_equity', 'ai_semiconductor',  '091160'),
+    ('KODEX 은행',        'KODEX 은행',            'ETF', 'etf_equity', 'finance_valueup',   '091170'),
+    ('TIGER 단기채권',    'TIGER 단기채권',        'ETF', 'etf_bond',   'bond',              '157490'),
+    ('KODEX 국고채10년',  'KODEX 국고채10년',      'ETF', 'etf_bond',   'bond',              '148070'),
+    ('KODEX 골드선물',    'KODEX 골드선물(H)',     'ETF', 'etf_gold',   'gold',              '132030'),
+    ('TIGER 미국채10년',  'TIGER 미국채10년선물',  'ETF', 'etf_bond',   'bond',              '305540'),
+    ('TIGER 2차전지',     'TIGER 2차전지테마',     'ETF', 'etf_equity', 'clean_energy',      '305720'),
+    ('KODEX 바이오',      'KODEX 바이오',          'ETF', 'etf_equity', 'bio_healthcare',    '244580'),
+    ('TIGER 우주방산',    'TIGER 우주방산',        'ETF', 'etf_equity', 'defense',           '464520'),
+    ('TIGER 200금융',     'TIGER 200금융',         'ETF', 'etf_equity', 'finance_valueup',   '139270')
+ON CONFLICT (ticker) DO NOTHING;

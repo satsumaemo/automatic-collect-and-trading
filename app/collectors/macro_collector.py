@@ -41,8 +41,8 @@ MACRO_SOURCES: Dict[str, dict] = {
 
 # Yahoo에서도 가져올 수 있는 FRED 지표 대체
 FRED_YAHOO_FALLBACK: Dict[str, str] = {
-    "us10y": "^TNX",    # 10년 국채 수익률
-    "us2y": "2YY=F",    # 2년 국채 선물
+    "us10y": "^TNX",    # 10년 국채 수익률 (CBOE)
+    # us2y: FRED 전용 — Yahoo 대체 없음 (스킵)
 }
 
 
@@ -50,16 +50,17 @@ def _fetch_yahoo(ticker: str) -> Optional[float]:
     """yfinance로 최신 가격 1건 (동기)"""
     try:
         import yfinance as yf
+        import logging as _logging
+        # yfinance 내부 로거 경고 억제
+        _logging.getLogger("yfinance").setLevel(_logging.CRITICAL)
+
         t = yf.Ticker(ticker)
-        hist = t.history(period="1d")
-        if hist.empty:
-            # 1d가 비어있으면 5d로 시도
-            hist = t.history(period="5d")
+        hist = t.history(period="5d")
         if hist.empty:
             return None
         return float(hist["Close"].iloc[-1])
     except Exception as e:
-        logger.error("Yahoo Finance 수집 실패 [%s]: %s", ticker, e)
+        logger.warning("Yahoo Finance 수집 실패 [%s]: %s", ticker, e)
         return None
 
 
@@ -147,7 +148,7 @@ class MacroCollector:
     async def _save_indicator(self, dt: date, name: str, value: float) -> None:
         """global_indicators 테이블에 저장"""
         async with get_session() as session:
-            await session.execute(
+            session.execute(
                 text("""
                     INSERT INTO global_indicators (date, indicator_name, value)
                     VALUES (:dt, :name, :val)
@@ -160,7 +161,7 @@ class MacroCollector:
     async def _get_latest_value(self, name: str) -> Optional[float]:
         """DB에서 해당 지표의 최신 값"""
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT value FROM global_indicators
                     WHERE indicator_name = :name
@@ -181,7 +182,7 @@ class MacroCollector:
 
         async with get_session() as session:
             for name in indicators:
-                result = await session.execute(
+                result = session.execute(
                     text("""
                         SELECT value FROM global_indicators
                         WHERE indicator_name = :name
@@ -216,7 +217,7 @@ class MacroCollector:
 
         cutoff = date.today() - timedelta(days=3650)
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT COUNT(*) FILTER (WHERE value <= :current),
                            COUNT(*)

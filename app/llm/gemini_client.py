@@ -5,6 +5,7 @@ google-generativeai 라이브러리를 사용합니다.
 JSON 추출, 토큰 추정, 자동 재시도를 지원합니다.
 """
 
+import ast
 import json
 import logging
 import re
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 # ── 사용 가능 모델명 ──
 GEMINI_MODELS = {
-    "pro": "gemini-2.5-pro-preview-06-05",
-    "flash": "gemini-2.5-flash-preview-05-20",
+    "pro": "gemini-2.5-pro",
+    "flash": "gemini-2.5-flash",
     "flash-lite": "gemini-2.0-flash-lite",
 }
 
@@ -27,23 +28,105 @@ GEMINI_MODELS = {
 JSON_ENFORCE_SUFFIX = "\n\n[중요] 반드시 유효한 JSON만 응답하세요. 다른 텍스트, 마크다운, 설명 없이 JSON 객체만 출력하세요."
 
 
-def extract_json(text: str) -> dict:
-    """LLM 응답에서 JSON 추출. 다양한 형태 대응."""
+def _extract_json_candidate(text: str) -> str:
+    """LLM 응답에서 JSON 문자열 후보를 추출."""
     # 1) ```json ... ``` 블록
     match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if match:
-        return json.loads(match.group(1))
+        return match.group(1)
     # 2) ``` ... ``` 블록 (json 태그 없이)
     match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
     if match:
         candidate = match.group(1).strip()
         if candidate.startswith("{"):
-            return json.loads(candidate)
+            return candidate
     # 3) { ... } 전체 (가장 바깥 중괄호)
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
-        return json.loads(match.group(0))
+        return match.group(0)
     raise json.JSONDecodeError("JSON을 찾을 수 없음", text, 0)
+
+
+def _fix_unescaped_quotes(json_str: str) -> str:
+    """문자열 값 내부의 이스케이프 안 된 큰따옴표·줄바꿈을 제거."""
+    # 문자열 값 내부("..." 안)에서 이스케이프 안 된 제어문자 제거
+    cleaned = json_str.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # "key": "value with "bad" quotes" → 패턴 기반 복구
+    # description 등 긴 값 필드에서 내부 큰따옴표를 작은따옴표로 변환
+    def _replace_inner_quotes(m: re.Match) -> str:
+        key = m.group(1)
+        value = m.group(2)
+        fixed_value = value.replace('"', "'")
+        return f'"{key}": "{fixed_value}"'
+    # "key": "...내용..." 패턴에서 내용 부분에 큰따옴표가 있으면 교체
+    # 키 뒤 값이 문자열인 경우를 찾되, 값 끝은 ", 또는 "} 또는 "] 로 판단
+    cleaned = re.sub(
+        r'"(description|reasoning|summary|detail|message|text)"'
+        r'\s*:\s*"((?:[^"\\]|\\.)*(?:"(?![,\s*}\]])(?:[^"\\]|\\.)*)*)"',
+        _replace_inner_quotes,
+        cleaned,
+    )
+    return cleaned
+
+
+def _extract_minimal_risk(text: str) -> Optional[dict]:
+    """정규식으로 risk_detection 핵심 필드만 추출하여 최소 dict 반환."""
+    alert_level = None
+    alert_confidence = None
+
+    m = re.search(r'"alert_level"\s*:\s*"(\w+)"', text)
+    if m:
+        alert_level = m.group(1)
+    m = re.search(r'"alert_confidence"\s*:\s*([\d.]+)', text)
+    if m:
+        alert_confidence = float(m.group(1))
+
+    if alert_level is not None:
+        result = {"alert_level": alert_level}
+        if alert_confidence is not None:
+            result["alert_confidence"] = alert_confidence
+        # detected_signals 개수 추출 시도
+        signals = re.findall(r'"signal_type"\s*:\s*"([^"]*)"', text)
+        if signals:
+            result["detected_signals"] = [{"signal_type": s} for s in signals]
+        else:
+            result["detected_signals"] = []
+        logger.warning("정규식 최소 추출 사용: %s", result)
+        return result
+    return None
+
+
+def extract_json(text: str) -> dict:
+    """LLM 응답에서 JSON 추출. 파싱 실패 시 단계적 복구 시도."""
+    candidate = _extract_json_candidate(text)
+
+    # 단계 1: 기본 json.loads
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+
+    # 단계 2: 이스케이프 안 된 큰따옴표/줄바꿈 정리 후 재시도
+    try:
+        fixed = _fix_unescaped_quotes(candidate)
+        return json.loads(fixed)
+    except json.JSONDecodeError:
+        pass
+
+    # 단계 3: ast.literal_eval (Python dict 리터럴로 파싱)
+    try:
+        result = ast.literal_eval(candidate)
+        if isinstance(result, dict):
+            return result
+    except (ValueError, SyntaxError):
+        pass
+
+    # 단계 4: 정규식으로 핵심 필드만 추출 (risk_detection 전용)
+    minimal = _extract_minimal_risk(text)
+    if minimal:
+        return minimal
+
+    raise json.JSONDecodeError("모든 JSON 복구 시도 실패", text, 0)
 
 
 class GeminiClient:

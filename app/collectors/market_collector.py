@@ -39,19 +39,27 @@ class MarketCollector:
         self._symbol_map: Dict[str, int] = {}
         # symbol_id → ticker 역매핑
         self._id_to_ticker: Dict[int, str] = {}
+        # ticker → kis_code 매핑 (DB에서 로드)
+        self._kis_code_map: Dict[str, str] = {}
         logger.info("MarketCollector 초기화")
 
     async def sync_symbols(self) -> None:
-        """DB의 활성 종목 목록을 메모리에 캐시"""
+        """DB의 활성 종목 목록을 메모리에 캐시 (kis_code 포함)"""
         async with get_session() as session:
-            result = await session.execute(
-                text("SELECT symbol_id, ticker FROM symbols WHERE is_active = TRUE")
+            result = session.execute(
+                text("SELECT symbol_id, ticker, kis_code FROM symbols WHERE is_active = TRUE")
             )
             rows = result.fetchall()
             self._symbol_map = {row[1]: row[0] for row in rows}
             self._id_to_ticker = {row[0]: row[1] for row in rows}
+            self._kis_code_map = {row[1]: row[2] for row in rows if row[2]}
 
-        logger.info("종목 목록 동기화: %d개", len(self._symbol_map))
+        # KISBroker의 매핑에 DB kis_code 추가
+        from app.brokers.kis_broker import ETF_KIS_CODE_MAP
+        for ticker, kis_code in self._kis_code_map.items():
+            ETF_KIS_CODE_MAP[ticker] = kis_code
+
+        logger.info("종목 목록 동기화: %d개 (kis_code: %d개)", len(self._symbol_map), len(self._kis_code_map))
 
     def get_symbol_id(self, ticker: str) -> Optional[int]:
         """ticker → symbol_id"""
@@ -111,7 +119,7 @@ class MarketCollector:
 
                 # 날짜 변환: 'YYYYMMDD' → DATE
                 date_str = row["date"]
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO daily_ohlcv
                             (symbol_id, date, open, high, low, close, volume, turnover)

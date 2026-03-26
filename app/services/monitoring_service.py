@@ -49,7 +49,7 @@ class MonitoringService:
         # trade_history 기록
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO trade_history
                             (date, ticker, side, quantity, price, amount,
@@ -76,7 +76,7 @@ class MonitoringService:
         # orders 기록
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO orders
                             (order_id, broker, market, ticker, side, order_type,
@@ -133,7 +133,7 @@ class MonitoringService:
         try:
             async with get_session() as session:
                 oid = f"REJ-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO orders
                             (order_id, broker, market, ticker, side, quantity,
@@ -167,7 +167,7 @@ class MonitoringService:
 
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO alert_level_history
                             (timestamp, alert_level, triggers, actions_taken)
@@ -240,7 +240,7 @@ class MonitoringService:
             total_comm = sum(t.commission + t.tax for t in self._today_trades)
 
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO daily_performance
                             (date, portfolio_value, daily_return, cumulative_return,

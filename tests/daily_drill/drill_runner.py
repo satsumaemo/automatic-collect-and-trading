@@ -170,7 +170,7 @@ class DailyDrill:
             async with get_session() as session:
                 # Fault Injection 결과 저장
                 for fi in results.get("fault_injection", []):
-                    await session.execute(
+                    session.execute(
                         text("""
                             INSERT INTO drill_results
                                 (date, test_type, scenario_name, passed, error_type,
@@ -193,7 +193,7 @@ class DailyDrill:
                     )
 
                 # Kill Switch 결과
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO drill_results
                             (date, test_type, scenario_name, passed)
@@ -203,7 +203,7 @@ class DailyDrill:
                 )
 
                 # 이벤트 인지 결과
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO drill_results
                             (date, test_type, scenario_name, passed)

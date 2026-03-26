@@ -319,7 +319,7 @@ class SignalService:
         try:
             async with get_session() as session:
                 for r in results:
-                    await session.execute(
+                    session.execute(
                         text("""
                             INSERT INTO signal_scores
                                 (date, sector, short_term_score, long_term_score,

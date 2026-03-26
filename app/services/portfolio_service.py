@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
+import math
+
 from app.config import settings
 from app.models.contracts import (
     ConvergenceResult,
@@ -28,6 +30,9 @@ from app.models.contracts import (
 from app.utils.db import get_session
 
 logger = logging.getLogger(__name__)
+
+# Kill Switch 단일 주문 한도 (분할 기준)
+MAX_SINGLE_ORDER_PCT = settings.risk.max_single_order_ratio  # 0.10
 
 # ── 자산군 정의 ──
 ASSET_CLASSES = {
@@ -315,7 +320,7 @@ class PortfolioService:
     # ═══════════════════════════════════════
 
     def generate_orders(self) -> List[ProposedOrder]:
-        """최종 주문 목록 생성. 리밸런싱 주문 + 집중도 제한."""
+        """최종 주문 목록 생성. 리밸런싱 주문 + 집중도 제한 + 대량 주문 분할."""
         # 1. 리밸런싱 체크
         needs_rebalance, orders = self.check_rebalance_needed()
         if needs_rebalance:
@@ -327,10 +332,58 @@ class PortfolioService:
         # 3. 최소 현금 비율 확보 확인
         orders = self._ensure_min_cash(orders)
 
-        # 4. portfolio_targets DB 저장
-        # (비동기 처리는 오케스트레이터에서)
+        # 4. Kill Switch 단일 주문 한도 초과 시 자동 분할
+        orders = self._split_large_orders(orders)
 
         return orders
+
+    def _split_large_orders(
+        self, orders: List[ProposedOrder]
+    ) -> List[ProposedOrder]:
+        """
+        단일 주문이 MAX_SINGLE_ORDER_PCT(10%)를 초과하면 자동 분할.
+        예: 20% 주문 → 10% + 10% 두 건.
+        """
+        if self._portfolio_value <= 0:
+            return orders
+
+        max_amount = int(self._portfolio_value * MAX_SINGLE_ORDER_PCT)
+        if max_amount <= 0:
+            return orders
+
+        result: List[ProposedOrder] = []
+        for order in orders:
+            if order.amount <= max_amount:
+                result.append(order)
+                continue
+
+            # 분할 필요
+            n_splits = math.ceil(order.amount / max_amount)
+            base_amount = order.amount // n_splits
+            remainder = order.amount - base_amount * n_splits
+
+            logger.info(
+                "주문 분할: %s %s %s원 → %d건 (각 %s원)",
+                order.ticker, order.side.value,
+                f"{order.amount:,}", n_splits, f"{base_amount:,}",
+            )
+
+            for i in range(n_splits):
+                split_amount = base_amount + (1 if i < remainder else 0)
+                if split_amount < MIN_TRADE:
+                    continue
+                result.append(ProposedOrder(
+                    ticker=order.ticker,
+                    side=order.side,
+                    quantity=order.quantity,
+                    price=order.price,
+                    amount=split_amount,
+                    trigger=order.trigger,
+                    reason=f"{order.reason} (분할 {i+1}/{n_splits})",
+                    sector=order.sector,
+                ))
+
+        return result
 
     def _apply_concentration_limits(
         self, orders: List[ProposedOrder]
@@ -380,8 +433,16 @@ class PortfolioService:
         if self._portfolio_value <= 0:
             return orders
 
-        # 현재 현금 추정
-        cash_pct = self._current_allocation.get("cash_rp", 0) / 100
+        # 현재 현금 추정 (배분 정보 없으면 포지션 합산에서 역산)
+        if self._current_allocation:
+            cash_pct = self._current_allocation.get("cash_rp", 0) / 100
+        else:
+            # 포지션 합산 → 나머지가 현금
+            pos_total = sum(
+                float(p.get("eval_amount", 0) or p.get("value", 0))
+                for p in self._current_positions.values()
+            )
+            cash_pct = max(0, 1.0 - pos_total / self._portfolio_value) if self._portfolio_value > 0 else 1.0
         current_cash = self._portfolio_value * cash_pct
 
         # 매수 총액 계산
@@ -440,7 +501,7 @@ class PortfolioService:
 
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO portfolio_targets
                             (date, regime, kr_equity_pct, us_equity_pct,

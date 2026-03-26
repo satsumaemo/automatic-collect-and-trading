@@ -182,7 +182,7 @@ class NewsCollector:
 
                 # 중복 체크 (URL 기준)
                 if link:
-                    dup = await session.execute(
+                    dup = session.execute(
                         text("SELECT 1 FROM news_articles WHERE url = :url LIMIT 1"),
                         {"url": link},
                     )
@@ -193,7 +193,7 @@ class NewsCollector:
                 categories = classify_article(title, summary)
                 importance, _ = score_article(title, summary, source, published_at)
 
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO news_articles
                             (source, title, summary, url, published_at,
@@ -248,7 +248,7 @@ class NewsCollector:
 
         async with get_session() as session:
             # 오늘 날짜 기사에서 카테고리별 집계
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT unnest(categories) AS category,
                            COUNT(*) AS cnt,
@@ -267,7 +267,7 @@ class NewsCollector:
                 avg_sentiment = float(row[2]) if row[2] else 0
 
                 # 최근 30일 평균 기사 수
-                avg_result = await session.execute(
+                avg_result = session.execute(
                     text("""
                         SELECT AVG(article_count)
                         FROM news_frequency_daily
@@ -287,7 +287,7 @@ class NewsCollector:
                 buzz_score = count / avg_30d if avg_30d > 0 else 1.0
 
                 # 전일 감성 대비 변화
-                prev_result = await session.execute(
+                prev_result = session.execute(
                     text("""
                         SELECT avg_sentiment FROM news_frequency_daily
                         WHERE category = :cat AND date = :yesterday
@@ -298,7 +298,7 @@ class NewsCollector:
                 prev_sentiment = float(prev_row[0]) if prev_row and prev_row[0] else 0
                 tone_shift = avg_sentiment - prev_sentiment
 
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO news_frequency_daily
                             (date, category, article_count, avg_sentiment, buzz_score, tone_shift)

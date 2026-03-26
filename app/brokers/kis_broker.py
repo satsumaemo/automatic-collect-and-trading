@@ -189,11 +189,14 @@ class KISBroker(BaseBroker):
                 return data
 
             except httpx.HTTPStatusError as e:
-                logger.error("KIS HTTP 에러 (%d/%d): %s", attempt, MAX_RETRIES, e)
+                # 모의투자 서버는 500 에러가 흔함 — WARNING 레벨
+                logger.warning("KIS HTTP 에러 (%d/%d): %s", attempt, MAX_RETRIES, e.response.status_code)
                 if attempt == MAX_RETRIES:
                     raise
+                import asyncio
+                await asyncio.sleep(1.0)
             except httpx.RequestError as e:
-                logger.error("KIS 요청 에러 (%d/%d): %s", attempt, MAX_RETRIES, e)
+                logger.warning("KIS 요청 에러 (%d/%d): %s", attempt, MAX_RETRIES, e)
                 if attempt == MAX_RETRIES:
                     raise
                 import asyncio
@@ -403,7 +406,11 @@ class KISBroker(BaseBroker):
         }
 
     async def cancel_order(self, order_id: str) -> bool:
-        """주문 취소"""
+        """
+        주문 취소.
+        Returns True=취소 성공, False=취소 실패.
+        Raises RuntimeError with 'already_filled' in message if order was already filled.
+        """
         cano = self._account_no[:8]
         acnt_prdt_cd = self._account_no[8:] if len(self._account_no) > 8 else self._account_product_code
 
@@ -427,6 +434,14 @@ class KISBroker(BaseBroker):
                 priority=PRIORITY_ORDER_CHECK,
             )
             return True
+        except RuntimeError as e:
+            err_msg = str(e)
+            # "취소할 수량이 없습니다" → 이미 체결 완료
+            if "취소" in err_msg and "수량" in err_msg:
+                logger.info("주문 이미 체결됨 (취소 불가) [%s]: %s", order_id, err_msg)
+                raise RuntimeError(f"already_filled: {order_id}")
+            logger.error("주문 취소 실패 [%s]: %s", order_id, e)
+            return False
         except Exception as e:
             logger.error("주문 취소 실패 [%s]: %s", order_id, e)
             return False
@@ -462,14 +477,26 @@ class KISBroker(BaseBroker):
 
         for item in data.get("output1", []):
             if item.get("odno") == order_id:
+                ord_qty = int(item.get("ord_qty", 0))
+                tot_ccld_qty = int(item.get("tot_ccld_qty", 0))
+                avg_price = float(item.get("avg_prvs", 0))
+
+                # 상태 판정: 체결수량 기반
+                if tot_ccld_qty == 0:
+                    status = "pending"
+                elif tot_ccld_qty >= ord_qty:
+                    status = "filled"
+                else:
+                    status = "partial"
+
                 return {
                     "order_id": order_id,
                     "ticker": item.get("pdno", ""),
                     "side": "buy" if item.get("sll_buy_dvsn_cd") == "02" else "sell",
-                    "quantity": int(item.get("ord_qty", 0)),
-                    "filled_quantity": int(item.get("tot_ccld_qty", 0)),
-                    "filled_price": float(item.get("avg_prvs", 0)),
-                    "status": "filled" if item.get("ord_qty") == item.get("tot_ccld_qty") else "partial",
+                    "quantity": ord_qty,
+                    "filled_quantity": tot_ccld_qty,
+                    "filled_price": avg_price,
+                    "status": status,
                 }
 
         return {"order_id": order_id, "status": "unknown"}

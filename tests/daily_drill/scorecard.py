@@ -25,7 +25,7 @@ class ValidationScorecard:
 
         async with get_session() as session:
             # 전체 통과율
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT COUNT(*) AS total,
                            COUNT(*) FILTER (WHERE passed) AS pass_count
@@ -40,7 +40,7 @@ class ValidationScorecard:
             pass_rate = pass_count / max(total, 1)
 
             # False Negative 수
-            fn_result = await session.execute(
+            fn_result = session.execute(
                 text("""
                     SELECT COUNT(*)
                     FROM drill_results
@@ -51,7 +51,7 @@ class ValidationScorecard:
             false_negatives = fn_result.scalar() or 0
 
             # False Positive 수
-            fp_result = await session.execute(
+            fp_result = session.execute(
                 text("""
                     SELECT COUNT(*)
                     FROM drill_results
@@ -62,7 +62,7 @@ class ValidationScorecard:
             false_positives = fp_result.scalar() or 0
 
             # Kill Switch 정상률
-            ks_result = await session.execute(
+            ks_result = session.execute(
                 text("""
                     SELECT COUNT(*) FILTER (WHERE passed),
                            COUNT(*)
@@ -132,7 +132,7 @@ class ValidationScorecard:
         # DB 저장
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO weekly_scorecards
                             (week_start, total_tests, pass_rate,

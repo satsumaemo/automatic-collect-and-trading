@@ -116,11 +116,15 @@ class RiskService:
             details["daily_trades"] = self._daily_trade_count
 
         # 3. 단일 주문 크기
+        #    초기 진입(포지션 0개) 시에는 한도를 25%로 완화
         if self._portfolio_value > 0:
             order_pct = order.amount / self._portfolio_value
-            if order_pct > _risk.max_single_order_ratio:
+            is_initial_entry = len(self._positions) == 0
+            effective_limit = 0.25 if is_initial_entry else _risk.max_single_order_ratio
+            if order_pct > effective_limit:
                 violated.append(
-                    f"단일 주문 한도 초과: {order_pct:.1%} > {_risk.max_single_order_ratio:.0%}"
+                    f"단일 주문 한도 초과: {order_pct:.1%} > {effective_limit:.0%}"
+                    + (" (초기진입 완화)" if is_initial_entry else "")
                 )
                 details["order_pct"] = order_pct
 
@@ -175,7 +179,7 @@ class RiskService:
     # 방어선 3: 진입 필터
     # ═══════════════════════════════════════
 
-    def check_entry_filter(self, order: ProposedOrder) -> EntryFilterResult:
+    async def check_entry_filter(self, order: ProposedOrder) -> EntryFilterResult:
         """진입 필터 — 매도는 항상 통과, 매수만 검사"""
         if order.side == OrderSide.SELL:
             return EntryFilterResult(passed=True, reason="매도 면제", details={})
@@ -203,7 +207,7 @@ class RiskService:
 
         # 3. 매크로 극단값
         try:
-            macro = await_compat(self.data.get_macro_snapshot)
+            macro = await self.data.get_macro_snapshot()
             if macro:
                 if macro.vix > 35:
                     return EntryFilterResult(
@@ -226,7 +230,7 @@ class RiskService:
     # 방어선 4: 경고 레벨 평가
     # ═══════════════════════════════════════
 
-    def evaluate_alert_level(self) -> AlertLevel:
+    async def evaluate_alert_level(self) -> AlertLevel:
         """실시간 경고 레벨 판단 — 4단계"""
         # 비상 조건 (하나라도 해당)
         emergency_triggers = [
@@ -236,7 +240,7 @@ class RiskService:
         # 매크로 데이터 시도
         macro = None
         try:
-            macro = await_compat(self.data.get_macro_snapshot)
+            macro = await self.data.get_macro_snapshot()
         except Exception:
             pass
 
@@ -436,10 +440,19 @@ class RiskService:
                         order.ticker, original_qty, order.quantity, val.size_reduction_pct,
                     )
             except Exception as e:
+                if self._is_inverse_conflict(order):
+                    logger.warning(
+                        "LLM 검증 타임아웃 + 인버스 충돌 감지 → reject: %s (%s)", order.ticker, e,
+                    )
+                    return RejectedOrder(
+                        original_order=order,
+                        rejected_by="llm_timeout_inverse",
+                        reason=f"LLM 검증 타임아웃 — 롱+인버스 동시 보유 위험으로 거부: {e}",
+                    )
                 logger.error("LLM 검증 에러 (통과 처리): %s", e)
 
         # 3층: 진입 필터
-        ef = self.check_entry_filter(order)
+        ef = await self.check_entry_filter(order)
         if not ef.passed:
             logger.warning("진입 필터 차단: %s", ef.reason)
             return RejectedOrder(
@@ -456,6 +469,28 @@ class RiskService:
     # ═══════════════════════════════════════
     # 보조 메서드
     # ═══════════════════════════════════════
+
+    # 인버스 ETF 키워드
+    _INVERSE_KEYWORDS = ("인버스", "inverse", "숏", "short", "곱버스")
+
+    def _is_inverse_conflict(self, order: ProposedOrder) -> bool:
+        """주문 또는 기존 포지션에 인버스 종목이 포함되어 롱+숏 충돌 위험이 있는지 판단."""
+        order_is_inverse = any(kw in order.ticker.lower() for kw in self._INVERSE_KEYWORDS)
+        portfolio_has_inverse = any(
+            any(kw in ticker.lower() for kw in self._INVERSE_KEYWORDS)
+            for ticker in self._positions
+        )
+        portfolio_has_long = any(
+            not any(kw in ticker.lower() for kw in self._INVERSE_KEYWORDS)
+            for ticker in self._positions
+        )
+
+        # 인버스 주문 + 포트폴리오에 롱 보유, 또는 롱 주문 + 포트폴리오에 인버스 보유
+        if order_is_inverse and portfolio_has_long:
+            return True
+        if not order_is_inverse and portfolio_has_inverse:
+            return True
+        return False
 
     def get_position_adjustment(self) -> float:
         """경고 레벨별 포지션 조정 비율"""
@@ -486,7 +521,7 @@ class RiskService:
         """stop_loss_events 테이블에 기록"""
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO stop_loss_events
                             (event_type, ticker, loss_pct, reason)
@@ -506,28 +541,3 @@ class RiskService:
         )
 
 
-def await_compat(coro_or_func, *args, **kwargs):
-    """
-    동기 메서드 내에서 async DataService 메서드를 호출하기 위한 호환 래퍼.
-    이미 실행 중인 이벤트 루프가 있으면 None 반환 (데이터 없이 진행).
-    """
-    import asyncio
-    import inspect
-
-    # 호출 가능한 함수이면 호출
-    if callable(coro_or_func) and not inspect.iscoroutine(coro_or_func):
-        try:
-            result = coro_or_func(*args, **kwargs)
-        except Exception:
-            return None
-        # 코루틴이면 실행 시도
-        if inspect.iscoroutine(result):
-            try:
-                loop = asyncio.get_running_loop()
-                # 이미 실행 중 → 동기 컨텍스트에서 await 불가
-                return None
-            except RuntimeError:
-                return asyncio.run(result)
-        return result
-
-    return None

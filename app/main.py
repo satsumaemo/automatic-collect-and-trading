@@ -11,9 +11,14 @@ TradingOrchestrator — 메인 오케스트레이터.
   4. run_closing_review()   — 16:30 장마감 리뷰
 """
 
+import sys
 import asyncio
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import logging
-from datetime import datetime
+from datetime import datetime, time
 
 from app.config import settings
 from app.services.data_service import DataService
@@ -118,7 +123,7 @@ class TradingOrchestrator:
             await redis_client.set_alert_level(risk_detection.alert_level.value)
 
             # 경고 레벨 변경 감지
-            alert = self.risk_service.evaluate_alert_level()
+            alert = await self.risk_service.evaluate_alert_level()
             if self._prev_alert and alert != self._prev_alert:
                 await self.monitoring_service.on_alert_level_changed(self._prev_alert, alert)
             self._prev_alert = alert
@@ -149,6 +154,17 @@ class TradingOrchestrator:
             logger.error("[6/9] 주문 생성 실패: %s", e)
 
         # 7~8단계: 리스크 검증 + 실행
+        # 장 시간 체크 (09:00~15:20 정규장)
+        now = datetime.now().time()
+        market_open = time(9, 0)
+        market_close = time(15, 20)
+        if orders and not (market_open <= now <= market_close):
+            logger.warning(
+                "장 시간 외 — 주문 실행 스킵 (%d건 대기중, 현재 %s)",
+                len(orders), now.strftime("%H:%M"),
+            )
+            orders = []
+
         executed = []
         for order in orders:
             try:
@@ -188,7 +204,7 @@ class TradingOrchestrator:
         try:
             await self.data_service.collect_hourly()
             await self.analysis_service.detect_risks()
-            alert_level = self.risk_service.evaluate_alert_level()
+            alert_level = await self.risk_service.evaluate_alert_level()
             await redis_client.set_alert_level(alert_level.value)
             logger.info("[경량 업데이트] 완료 — 경고: %s", alert_level.value)
         except Exception as e:

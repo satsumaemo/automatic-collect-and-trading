@@ -153,7 +153,7 @@ class LLMManager:
         try:
             prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO llm_call_log
                             (task_type, model_used, prompt_hash,

@@ -72,7 +72,7 @@ class IndicatorCalculator:
     async def _load_ohlcv(self, symbol_id: int, limit: int = 200) -> Optional[pd.DataFrame]:
         """DB에서 일봉 데이터를 DataFrame으로 로드"""
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT date, open, high, low, close, volume
                     FROM daily_ohlcv
@@ -147,7 +147,7 @@ class IndicatorCalculator:
                 def val_int(v: float) -> Optional[int]:
                     return None if pd.isna(v) else int(v)
 
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO daily_indicators
                             (symbol_id, date, ma5, ma20, ma60, ma120,
@@ -192,7 +192,7 @@ class IndicatorCalculator:
     async def _load_symbol_map(self) -> None:
         """DB에서 활성 종목 매핑 로드"""
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("SELECT ticker, symbol_id FROM symbols WHERE is_active = TRUE")
             )
             self._symbol_map = {row[0]: row[1] for row in result.fetchall()}

@@ -80,7 +80,7 @@ class DataService:
         cutoff = date.today() - timedelta(days=days)
 
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT date, open, high, low, close, adj_close, volume
                     FROM daily_ohlcv
@@ -142,7 +142,7 @@ class DataService:
             raise ValueError(f"symbol_id 없음: {ticker}")
 
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT date, ma5, ma20, ma60, ma120,
                            rsi14, macd, macd_signal, bb_upper, bb_lower,
@@ -191,7 +191,7 @@ class DataService:
 
         async with get_session() as session:
             # 총 기사 수
-            count_result = await session.execute(
+            count_result = session.execute(
                 text("""
                     SELECT COUNT(*) FROM news_articles
                     WHERE published_at >= :cutoff
@@ -201,7 +201,7 @@ class DataService:
             total = count_result.scalar() or 0
 
             # 중요도 상위 20건
-            top_result = await session.execute(
+            top_result = session.execute(
                 text("""
                     SELECT title, summary, source, categories,
                            importance_score, published_at
@@ -226,7 +226,7 @@ class DataService:
                 })
 
             # 카테고리별 집계
-            cat_result = await session.execute(
+            cat_result = session.execute(
                 text("""
                     SELECT unnest(categories) AS cat, COUNT(*) AS cnt
                     FROM news_articles
@@ -239,7 +239,7 @@ class DataService:
             sector_summary = {row[0]: row[1] for row in cat_result.fetchall()}
 
             # 버즈 상위 토픽
-            buzz_result = await session.execute(
+            buzz_result = session.execute(
                 text("""
                     SELECT category, buzz_score, tone_shift
                     FROM news_frequency_daily
@@ -268,7 +268,7 @@ class DataService:
 
         async with get_session() as session:
             # 최근 7일 평균 buzz
-            result_7d = await session.execute(
+            result_7d = session.execute(
                 text("""
                     SELECT AVG(buzz_score), AVG(tone_shift), AVG(avg_sentiment)
                     FROM news_frequency_daily
@@ -279,7 +279,7 @@ class DataService:
             row_7d = result_7d.fetchone()
 
             # 최근 30일 평균 buzz
-            result_30d = await session.execute(
+            result_30d = session.execute(
                 text("""
                     SELECT AVG(buzz_score)
                     FROM news_frequency_daily
@@ -304,7 +304,7 @@ class DataService:
     async def get_financial_data(self, company_id: int) -> FinancialData:
         """재무제표 요약 조회"""
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT fs.company_id, s.ticker,
                            fs.fiscal_year, fs.fiscal_quarter,
@@ -348,7 +348,7 @@ class DataService:
         end = today + timedelta(days=days)
 
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT event_name, event_date, event_time, importance
                     FROM economic_events
@@ -384,7 +384,7 @@ class DataService:
         # 해당 섹터의 ETF symbol_id 목록
         sector_ids = []
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT symbol_id FROM symbols
                     WHERE sector = :sector AND is_active = TRUE
@@ -399,7 +399,7 @@ class DataService:
         today = date.today()
         async with get_session() as session:
             # 최근 7일 순유입
-            result_7d = await session.execute(
+            result_7d = session.execute(
                 text("""
                     SELECT COALESCE(SUM(net_flow), 0)
                     FROM etf_flows
@@ -410,7 +410,7 @@ class DataService:
             flow_7d = float(result_7d.scalar() or 0)
 
             # 최근 30일 일평균
-            result_30d = await session.execute(
+            result_30d = session.execute(
                 text("""
                     SELECT COALESCE(AVG(daily_sum), 0) FROM (
                         SELECT date, SUM(net_flow) AS daily_sum
@@ -441,7 +441,7 @@ class DataService:
 
         cutoff = date.today() - timedelta(days=days)
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT date, foreign_net, institution_net, individual_net
                     FROM supply_demand
@@ -470,7 +470,7 @@ class DataService:
         """내부자 거래 조회"""
         cutoff = date.today() - timedelta(days=days)
         async with get_session() as session:
-            result = await session.execute(
+            result = session.execute(
                 text("""
                     SELECT company_id, insider_name, position, trade_type,
                            shares, price, total_value, trade_date, report_date

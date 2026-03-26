@@ -152,7 +152,7 @@ class HallucinationGuard:
         """DB에서 해당 task_type의 마지막 성공 기록 조회"""
         try:
             async with get_session() as session:
-                result = await session.execute(
+                result = session.execute(
                     text("""
                         SELECT parsed_output FROM llm_call_log
                         WHERE task_type = :task AND validation_passed = TRUE

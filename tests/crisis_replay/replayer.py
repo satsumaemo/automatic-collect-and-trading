@@ -138,7 +138,7 @@ class CrisisReplayer:
         """crisis_replay_results 테이블에 저장"""
         try:
             async with get_session() as session:
-                await session.execute(
+                session.execute(
                     text("""
                         INSERT INTO crisis_replay_results
                             (date, crisis_name, all_passed, regime_match,

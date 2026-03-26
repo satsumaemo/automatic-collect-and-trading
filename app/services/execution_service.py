@@ -88,12 +88,26 @@ class ExecutionService:
             })
             api_order_id = response.get("order_id", order_id)
 
-            # 3. 체결 확인 (최대 60초 폴링)
+            # 3. 체결 확인
             fill = await self._wait_for_fill(api_order_id, timeout=60)
 
             filled_price = float(fill.get("filled_price", price or 0))
             filled_qty = int(fill.get("filled_quantity", order.quantity))
             status = fill.get("status", "filled")
+
+            # 3-1. 잔고 폴백으로 체결 복구 시도
+            if status == "timeout" and fill.get("balance_positions"):
+                kis_code = self.broker.resolve_kis_code(order.ticker)
+                for pos in fill["balance_positions"]:
+                    if pos.get("ticker") == kis_code:
+                        filled_qty = pos["quantity"]
+                        filled_price = pos["current_price"]
+                        status = "filled"
+                        logger.info(
+                            "잔고 폴백으로 체결 복구: %s x%d @%.0f",
+                            order.ticker, filled_qty, filled_price,
+                        )
+                        break
 
             # 4. 비용 계산
             amount = filled_qty * filled_price
@@ -180,26 +194,91 @@ class ExecutionService:
     # ═══════════════════════════════════════
 
     async def _wait_for_fill(self, order_id: str, timeout: int = 60) -> dict:
-        """체결 확인 — 최대 timeout초 동안 1초 간격 폴링"""
-        start = datetime.now()
-        while (datetime.now() - start).seconds < timeout:
+        """
+        체결 확인.
+        - 모의투자: 2초 초기 대기 후 2초 간격, 최대 3회 폴링 (총 ~8초)
+        - 실전: 1초 간격, 최대 timeout초 폴링
+        타임아웃 시 취소 시도 → 이미 체결이면 체결 조회 재시도 → 잔고 폴백
+        """
+        if self._is_paper:
+            initial_delay = 2.0
+            poll_interval = 2.0
+            max_polls = 3
+        else:
+            initial_delay = 1.0
+            poll_interval = 1.0
+            max_polls = timeout
+
+        # 초기 대기 (KIS 서버 체결 처리 시간)
+        await asyncio.sleep(initial_delay)
+
+        for i in range(max_polls):
             try:
                 status = await self.broker.get_order_status(order_id)
-                if status.get("status") in ("filled", "partial", "rejected", "cancelled"):
+                st = status.get("status")
+                if st in ("filled", "partial", "rejected", "cancelled"):
                     return status
+                if st == "pending":
+                    logger.debug("체결 대기 중 (%d/%d): %s", i + 1, max_polls, order_id)
             except Exception as e:
-                logger.debug("체결 확인 에러: %s", e)
+                logger.debug("체결 확인 에러 (%d/%d): %s", i + 1, max_polls, e)
 
-            await asyncio.sleep(1)
+            if i < max_polls - 1:
+                await asyncio.sleep(poll_interval)
 
-        # 타임아웃 → 취소 시도
+        # 폴링 타임아웃 → 취소 시도
         logger.warning("체결 확인 타임아웃: %s", order_id)
         try:
             await self.broker.cancel_order(order_id)
+        except RuntimeError as e:
+            if "already_filled" in str(e):
+                # 이미 체결됨 → 체결 조회 재시도
+                logger.info("취소 불가 (이미 체결) — 체결 정보 재조회: %s", order_id)
+                return await self._retry_fill_query(order_id)
         except Exception:
             pass
 
-        return {"status": "timeout", "filled_quantity": 0, "filled_price": 0}
+        # 최종 폴백: 잔고 조회로 보유 확인
+        return await self._fallback_balance_check(order_id)
+
+    async def _retry_fill_query(self, order_id: str) -> dict:
+        """이미 체결된 주문의 체결 정보를 재조회 (최대 2회)"""
+        for attempt in range(2):
+            await asyncio.sleep(1.0)
+            try:
+                status = await self.broker.get_order_status(order_id)
+                if status.get("status") in ("filled", "partial"):
+                    return status
+            except Exception as e:
+                logger.debug("체결 재조회 에러 (%d/2): %s", attempt + 1, e)
+
+        logger.warning("체결 재조회 실패 — 잔고 폴백: %s", order_id)
+        return await self._fallback_balance_check(order_id)
+
+    async def _fallback_balance_check(self, order_id: str) -> dict:
+        """
+        잔고 조회(inquire-balance)로 실제 보유 여부 확인.
+        체결 조회 실패 시 마지막 폴백.
+        """
+        try:
+            balance = await self.broker.get_balance()
+            positions = balance.get("positions", [])
+            if positions:
+                logger.info(
+                    "잔고 폴백: %d개 종목 보유 확인 (주문 %s 체결 추정)",
+                    len(positions), order_id,
+                )
+            # 잔고에서 체결가/수량을 정확히 매칭하기 어려우므로
+            # 호출자에게 timeout을 반환하되, 잔고 정보를 포함
+            return {
+                "status": "timeout",
+                "filled_quantity": 0,
+                "filled_price": 0,
+                "balance_positions": positions,
+            }
+        except Exception as e:
+            logger.error("잔고 폴백 조회 실패: %s", e)
+            return {"status": "timeout", "filled_quantity": 0, "filled_price": 0}
 
     # ═══════════════════════════════════════
     # 부분 체결 처리

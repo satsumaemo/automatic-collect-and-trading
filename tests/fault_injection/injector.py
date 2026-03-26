@@ -112,7 +112,7 @@ class FaultInjector:
         if self._injected_news_ids:
             try:
                 async with get_session() as session:
-                    await session.execute(
+                    session.execute(
                         text("DELETE FROM news_articles WHERE url LIKE :prefix"),
                         {"prefix": f"{TEST_URL_PREFIX}%"},
                     )
@@ -147,7 +147,7 @@ class FaultInjector:
 
         try:
             async with get_session() as session:
-                result = await session.execute(
+                result = session.execute(
                     text("""
                         INSERT INTO news_articles
                             (source, title, url, published_at, language,

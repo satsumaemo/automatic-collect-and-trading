@@ -85,7 +85,7 @@ class LiveTransitionGuard:
     async def _check_paper_days(self) -> dict:
         try:
             async with get_session() as session:
-                r = await session.execute(
+                r = session.execute(
                     text("SELECT COUNT(DISTINCT date) FROM daily_performance")
                 )
                 days = r.scalar() or 0
@@ -106,7 +106,7 @@ class LiveTransitionGuard:
             async with get_session() as session:
                 # 최근 14일간 False Negative 수
                 cutoff = date.today() - timedelta(days=MIN_FN_ZERO_STREAK)
-                r = await session.execute(
+                r = session.execute(
                     text("""
                         SELECT COUNT(*) FROM drill_results
                         WHERE date >= :cutoff AND error_type = 'FALSE_NEGATIVE'
@@ -130,7 +130,7 @@ class LiveTransitionGuard:
     async def _check_crisis_replays(self) -> dict:
         try:
             async with get_session() as session:
-                r = await session.execute(
+                r = session.execute(
                     text("SELECT COUNT(*) FROM crisis_replay_results WHERE all_passed = TRUE")
                 )
                 count = r.scalar() or 0
@@ -141,7 +141,7 @@ class LiveTransitionGuard:
     async def _check_kill_switch(self) -> dict:
         try:
             async with get_session() as session:
-                r = await session.execute(
+                r = session.execute(
                     text("""
                         SELECT COUNT(*) FROM drill_results
                         WHERE test_type = 'kill_switch' AND passed = TRUE
@@ -155,7 +155,7 @@ class LiveTransitionGuard:
     async def _check_telegram(self) -> dict:
         try:
             async with get_session() as session:
-                r = await session.execute(
+                r = session.execute(
                     text("""
                         SELECT COUNT(*) FROM daily_performance
                         WHERE date >= :cutoff
@@ -170,7 +170,7 @@ class LiveTransitionGuard:
     async def _check_token(self) -> dict:
         try:
             async with get_session() as session:
-                r = await session.execute(
+                r = session.execute(
                     text("""
                         SELECT COUNT(*) FROM llm_call_log
                         WHERE timestamp >= NOW() - INTERVAL '7 days'
